@@ -1,0 +1,10 @@
+---
+- name: Update JAVA_HOME
+  uri:
+    url: "{{BASE_URL}}/cm/allHosts/config"
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ { "name" : "java_home", "value": "/usr/java/jdk1.8.0_201-amd64"   }]}
+    body_format: json

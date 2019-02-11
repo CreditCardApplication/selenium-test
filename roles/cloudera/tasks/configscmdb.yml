@@ -1,0 +1,34 @@
+---
+- name: create temp user
+  shell: "mysql -u root --password='synthesys' -e \"grant all on *.* to 'root'@'%' identified by 'synthesys' with grant option;\""
+  delegate_to: "{{ hostvars[groups['oozie'][0]].ansible_fqdn }}"
+
+- name: create temp user
+  shell: "mysql -u root --password='synthesys' -e \"grant all on *.* to 'temp'@'%' identified by 'temp' with grant option;\""
+  delegate_to: "{{ hostvars[groups['oozie'][0]].ansible_fqdn }}"
+
+- name: create temp user
+  shell: "mysql -u root --password='synthesys' -e \"drop database scm;\""
+  delegate_to: "{{ hostvars[groups['oozie'][0]].ansible_fqdn }}"
+  ignore_errors: true
+
+- name: run scm_prepare_database script
+  shell: "sudo /usr/share/cmf/schema/scm_prepare_database.sh mysql -h 10.200.102.56  -utemp --password='temp' --scm-host localhost scm scm scm"
+  run_once: true
+  register: cmd_result
+  failed_when: "'All done, your SCM database is configured correctly!' not in cmd_result.stdout"
+
+- name: create user and grant access
+  mysql_user:
+    login_user: "{{ mysql_user }}"
+    login_password: "{{ mysql_root_password }}"
+    name: temp
+    host: "%"
+    state: absent
+  delegate_to: "{{ hostvars[groups['oozie'][0]].ansible_fqdn }}"
+
+- name: start cloudera-scm-server
+  service:
+    name: cloudera-scm-server
+    state: restarted
+ 

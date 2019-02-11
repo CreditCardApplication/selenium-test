@@ -1,0 +1,13 @@
+---
+###################################
+# List of variables for cloudera  #
+###################################
+mysql_user: root
+mysql_root_password: synthesys
+DATANODE_SIZE: "{{ groups['datanodes'] | length}}"
+SNN_SIZE: "{{ groups['secondarynn'] | length}}"
+BASE_URL: http://{{hostvars[groups['cloudera_master'][0]].ansible_fqdn}}:7180/api/v19
+rman_pass: rman
+amon_pass: amon
+oozie_pass: oozie
+

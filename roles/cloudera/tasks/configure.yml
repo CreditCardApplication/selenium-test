@@ -1,0 +1,739 @@
+---
+########################################################
+# This will perform following steps:                   #
+# a. Accepts cloudera licenses                         # 
+# b. Install / configure the cloudera monitoring       #
+# c. Install / configure hadoop services               # 
+########################################################
+- name: Waiting for Cloudera manager server to start
+  wait_for: host={{ hostvars[groups['cloudera_master'][0]].ansible_fqdn }} port=7180
+  delay: 150
+
+- name: Select Cloudera trial version
+  uri: 
+    url: "{{BASE_URL}}/cm/trial/begin"
+    method: POST
+    user: admin
+    password: admin
+    creates: /opt/cdh/cdh_trial
+    status_code: 200,204
+
+
+- name: Create cdh_trial file
+  file: path=/opt/cdh/cdh_trial state=touch
+
+
+- name: Using template to get hosts
+  template: 
+    src: hadoop_hosts.j2
+    dest: /var/hadoop_hosts
+
+
+- name: Get Hadoop hosts into cluster
+  command: cat /var/hadoop_hosts
+  register: all_hadoop_hosts
+
+
+- name: Preparing installation of all hosts
+  uri: 
+    url: "{{BASE_URL}}/cm/commands/hostInstall"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: {"hostNames": "[{{all_hadoop_hosts.stdout}}]",
+            "userName" : "{{ANSIBLE_USER}}",
+            "privateKey" : "",
+            "cmRepoUrl" : "{{CM_BASE_URL}}"}
+    body_format: json
+    creates: /opt/cdh/hosts_install
+
+
+- name: Get file_exists into register
+  stat: path=/opt/cdh/hosts_install
+  register: file_exists
+
+
+- name: Waiting for installation of all hosts
+  shell: curl -sS -X GET -u "admin:admin" -i "{{BASE_URL}}/hosts" | grep '"hostname" :' | wc -l
+  register: installed_hosts
+  until: "{{installed_hosts.stdout}} == {{groups['hadoop_hosts'] | length}}"
+  retries: "{{groups['hadoop_hosts'] | length * 10}}"
+  delay: 20
+  when: not file_exists.stat.exists
+
+
+- name: Create hosts_install file
+  file: path=/opt/cdh/hosts_install state=touch
+
+
+- name: Create mgmt service
+  uri:
+    url: "{{BASE_URL}}/cm/service"
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: {"name": "mgmt"}
+    body_format: json
+    creates: /opt/cdh/mgmt_service
+
+- name: Create mgmt_service file
+  file: path=/opt/cdh/mgmt_service state=touch
+
+
+- name: Assign and configure roles - HOSTMONITOR
+  uri: 
+    url: "{{BASE_URL}}/cm/service/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: {"items": [ {"type":"HOSTMONITOR","hostRef":"{{hostvars[groups['cloudera_master'][0]].ansible_fqdn}}"}]}
+    body_format: json
+    creates: /opt/cdh/host_monitor
+
+- name: Create host_monitor file
+  file: path=/opt/cdh/host_monitor state=touch
+
+
+- name: Assign and configure roles - ALERTPUBLISHER
+  uri:
+    url: "{{BASE_URL}}/cm/service/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: {"items": [ {"type":"ALERTPUBLISHER","hostRef":"{{hostvars[groups['cloudera_master'][0]].ansible_fqdn}}"}]}
+    body_format: json
+    creates: /opt/cdh/alert_publisher
+
+- name: Create alert_publisher file
+  file: path=/opt/cdh/alert_publisher state=touch
+ 
+
+- name: Assign and configure roles - REPORTSMANAGER
+  uri:
+    url: "{{BASE_URL}}/cm/service/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: {"items": [ {"type":"REPORTSMANAGER","hostRef":"{{hostvars[groups['cloudera_master'][0]].ansible_fqdn}}"}]}
+    body_format: json
+    creates: /opt/cdh/reports_manager
+
+- name: Create reports_manager file
+  file: path=/opt/cdh/reports_manager state=touch
+   
+ 
+- name: Assign and configure roles - EVENTSERVER
+  uri:
+    url: "{{BASE_URL}}/cm/service/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: {"items": [ {"type":"EVENTSERVER","hostRef":"{{hostvars[groups['cloudera_master'][0]].ansible_fqdn}}"}]}
+    body_format: json
+    creates: /opt/cdh/event_server
+
+- name: Create event_server file
+  file: path=/opt/cdh/event_server state=touch
+
+
+- name: Assign and configure roles - SERVICEMONITOR
+  uri:
+    url: "{{BASE_URL}}/cm/service/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: {"items": [ {"type":"SERVICEMONITOR","hostRef":"{{hostvars[groups['cloudera_master'][0]].ansible_fqdn}}"}]}
+    body_format: json
+    creates: /opt/cdh/service_monitor
+
+- name: Create service_monitor file
+  file: path=/opt/cdh/service_monitor state=touch
+
+
+- name: Auto configure
+  uri: 
+    url: "{{BASE_URL}}/cm/service/autoConfigure"
+    method: PUT
+    user: admin
+    password: admin
+    creates: /opt/cdh/auto_configure
+    status_code: 200,204 
+
+- name: Create auto_configure file
+  file: path=/opt/cdh/auto_configure state=touch
+
+
+#- name: Get remote manager password 
+#  shell: grep com.cloudera.cmf.REPORTSMANAGER.db.password /etc/cloudera-scm-server/db.mgmt.properties | cut -d= -f2
+#  register: rman_pass
+
+
+- name: Configure remote manager
+  uri:
+    url: "{{BASE_URL}}/cm/service/roleConfigGroups/mgmt-REPORTSMANAGER-BASE/config"
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items":[{"name": "headlamp_database_host", "value": "{{hostvars[groups['mysql'][0]].ansible_fqdn}}:3306"}, {"name": "headlamp_database_name", "value": "rman"}, {"name": "headlamp_database_password", "value": "{{rman_pass}}"}, {"name": "headlamp_database_user", "value": "rman"},{"name": "headlamp_database_type", "value": "mysql"}]}
+    body_format: json 
+    status_code: 200,204
+    creates: /opt/cdh/remote_manager    
+
+- name: Create remote_manager file
+  file: path=/opt/cdh/remote_manager state=touch
+  
+  
+- name: Configure activity monitor
+  uri:
+    url: "{{BASE_URL}}/cm/service/roleConfigGroups/mgmt-ACTIVITYMONITOR-BASE/config"
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items":[{"name": "firehose_database_host", "value": "{{hostvars[groups['mysql'][0]].ansible_fqdn}}:3306"}, {"name": "firehose_database_name", "value": "amon"}, {"name": "firehose_database_password", "value": "{{amon_pass}}"}, {"name": "firehose_database_user", "value": "amon"},{"name": "firehose_database_type", "value": "mysql"}]}
+    body_format: json
+    status_code: 200,204
+    creates: /opt/cdh/amon_manager
+
+- name: Create remote_manager file
+  file: path=/opt/cdh/amon_manager state=touch
+
+
+- name: Start the Cloudera management services
+  uri:
+    url: "{{BASE_URL}}/cm/service/commands/start"
+    method: POST
+    user: admin
+    password: admin
+    creates: /opt/cdh/mgmt_service_start
+
+
+- name: Create mgmt_service_start file
+  file: path=/opt/cdh/mgmt_service_start state=touch
+
+
+- name: Create a cluster
+  uri:
+    url: "{{BASE_URL}}/clusters"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json" 
+    body: { "items": [{"name": "{{CLUSTER}}","version": "CDH{{CDH_VER.split('.')[0]}}","fullVersion":"{{CDH_VER}}"}] }
+    body_format: json
+    creates: /opt/cdh/create_cluster
+
+- name: Create create_cluster file
+  file: path=/opt/cdh/create_cluster state=touch
+
+
+- name: Get host ids
+  shell: curl -sS -X GET -u "admin:admin" -i "{{BASE_URL}}/hosts" | grep '"hostId" :' | cut -d'"' -f 4
+  register: host_ids
+
+- name: print host_ids content
+  debug:
+    var: host_ids.stdout_lines
+
+- name: Add hosts to the cluster
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/hosts"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"hostId": "{{item}}"} ]}
+    body_format: json
+  with_items: "{{ host_ids.stdout_lines }}"
+  args: 
+    creates: /opt/cdh/assign_hosts
+
+
+- name: Create assign_hosts file
+  file: path=/opt/cdh/assign_hosts state=touch
+  
+- name: Update JAVA_HOME
+  uri:
+    url: "{{BASE_URL}}/cm/allHosts/config"
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ { "name" : "java_home", "value": "/usr/java/jdk1.8.0_201-amd64"   }]}
+    body_format: json
+
+
+- name: Create ZOOKEEPER service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name": "zookeeper", "type": "ZOOKEEPER"} ] }
+    body_format: json
+    creates: /opt/cdh/zookeeper_service
+
+
+- name: Create zookeeper_service file
+  file: path=/opt/cdh/zookeeper_service state=touch
+ 
+  
+- name: Create OOZIE service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [  {"name": "oozie", "type": "OOZIE"}] }
+    body_format: json
+    creates: /opt/cdh/oozie_service 
+  when: "{{ groups['oozie'] | length}} != 0"  
+      
+- name: Create oozie_service file
+  file: path=/opt/cdh/oozie_service state=touch
+  when: "{{ groups['oozie'] | length}} != 0"
+  
+- name: Configure mysql db for oozie
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/oozie/roleConfigGroups/oozie-OOZIE_SERVER-BASE/config"
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name": "oozie_database_host", "value": "{{hostvars[groups['mysql'][0]].ansible_fqdn}}:3306"}, {"name": "oozie_database_name", "value": "oozie"}, {"name": "oozie_database_password", "value": "{{oozie_pass}}"}, {"name": "oozie_database_user", "value": "oozie"},{"name": "oozie_database_type", "value": "mysql"}] }
+    body_format: json
+    creates: /opt/cdh/oozie_dbconfig 
+  when: "{{ groups['oozie'] | length}} != 0"  
+      
+- name: Create oozie_service file
+  file: path=/opt/cdh/oozie_dbconfig state=touch
+  when: "{{ groups['oozie'] | length}} != 0"
+  
+  
+- name: Create OOZIE_SERVER role in OOZIE service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/oozie/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"OOZIE_SERVER","hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['oozie']}}"
+  args:
+    creates: /opt/cdh/oozie_server
+
+- name: Create oozie_server file
+  file: path=/opt/cdh/oozie_server state=touch
+  when: "{{ groups['oozie'] | length}} != 0"
+
+
+
+
+
+
+
+- name: Create HDFS service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [  {"name": "hdfs", "type": "HDFS"} ] }
+    body_format: json
+    creates: /opt/cdh/hdfs_service
+    
+- name: Create hdfs_service file
+  file: path=/opt/cdh/hdfs_service state=touch
+
+
+- name: Create YARN service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [  {"name": "yarn", "type": "YARN"} ] }
+    body_format: json
+    creates: /opt/cdh/yarn_service
+
+- name: Create yarn_service file
+  file: path=/opt/cdh/yarn_service state=touch
+
+
+- name: Create NAMENODE role in HDFS service 
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/hdfs/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name":"hdfs-namenode", "type":"NAMENODE", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['namenode']}}"
+  args:
+    creates: /opt/cdh/namenode
+
+
+- name: Create NAMENODE - if namenode is not defined
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/hdfs/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name":"hdfs-namenode", "type":"NAMENODE", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['cloudera_master']}}"
+  when: "{{ groups['namenode'] | length}} == 0"
+  args:
+    creates: /opt/cdh/namenode
+
+
+
+- name: Create namenode file
+  file: path=/opt/cdh/namenode state=touch
+
+
+- name: Create RESOURCEMANAGER role in YARN service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/yarn/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"RESOURCEMANAGER", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['resourcemanager']}}"
+  args:
+    creates: /opt/cdh/resource_manager
+
+
+- name: Create RESOURCEMANAGER - if resourcemanager is not defined
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/yarn/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"RESOURCEMANAGER", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['cloudera_master']}}"
+  when: "{{ groups['resourcemanager'] | length}} == 0"
+  args:
+    creates: /opt/cdh/resource_manager
+
+
+- name: Create resource_manager file
+  file: path=/opt/cdh/resource_manager state=touch
+
+
+- name: Create JOBHISTORY role in YARN service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/yarn/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"JOBHISTORY", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['resourcemanager']}}"
+  args:
+    creates: /opt/cdh/job_history
+
+- name: Create job_history file
+  file: path=/opt/cdh/job_history state=touch
+  when: "{{ groups['resourcemanager'] | length}} != 0"
+
+
+- name: Create SECONDARYNAMENODE role in HDFS service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/hdfs/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"SECONDARYNAMENODE","hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['secondarynn']}}"
+  args:
+    creates: /opt/cdh/secondarynn
+
+
+- name: Create SECONDARYNAMENODE role in HDFS service if secondarynn is not defined and datanodes is defined
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/hdfs/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"SECONDARYNAMENODE","hostRef":"{{ groups['datanodes'][0].ansible_fqdn }}"}]}
+    body_format: json
+  args:
+    creates: /opt/cdh/secondarynn
+  when: "DATANODE_SIZE > '0' and SNN_SIZE == '0'"
+
+- name: Create secondarynn file
+  file: path=/opt/cdh/secondarynn state=touch
+
+
+- name: Create SERVER role in ZOOKEEPER service 
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/zookeeper/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"SERVER", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['zookeeper']}}"
+  args:
+    creates: /opt/cdh/zookeeper_node
+  when: "DATANODE_SIZE > '0'"
+
+- name: Create zookeeper_node file
+  file: path=/opt/cdh/zookeeper_node state=touch
+  when: "DATANODE_SIZE > '0'"
+
+
+- name: Create DATANODE role in HDFS service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/hdfs/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"DATANODE", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['datanodes']}}"
+  args:
+    creates: /opt/cdh/datanode
+  when: "DATANODE_SIZE > '0'"
+
+- name: Create datanode file
+  file: path=/opt/cdh/datanode state=touch
+  when: "DATANODE_SIZE > '0'"
+
+
+- name: Create NODEMANAGER role in YARN service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/yarn/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"NODEMANAGER", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['datanodes']}}"
+  args:
+    creates: /opt/cdh/node_manager
+  when: "DATANODE_SIZE > '0'"
+
+- name: Create node_manager file
+  file: path=/opt/cdh/node_manager state=touch
+  when: "DATANODE_SIZE > '0'"
+
+
+
+
+
+
+
+- name: Create GATEWAY role in HDFS service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/hdfs/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"GATEWAY", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['hadoop_hosts']}}"
+  args:
+    creates: /opt/cdh/hdfs_gateway
+
+- name: Create hdfs_gateway file
+  file: path=/opt/cdh/hdfs_gateway state=touch
+
+
+- name: Create GATEWAY role in YARN service
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/yarn/roles"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"type":"GATEWAY", "hostRef":"{{ hostvars[item].ansible_fqdn }}"}]}
+    body_format: json
+  with_items: "{{groups['hadoop_hosts']}}"
+  args:
+    creates: /opt/cdh/yarn_gateway
+
+- name: Create yarn_gateway file
+  file: path=/opt/cdh/yarn_gateway state=touch
+
+
+
+
+- name: Auto configure
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/autoConfigure"
+    method: PUT
+    user: admin
+    password: admin
+    creates: /opt/cdh/auto_configure1
+    status_code: 200,204
+
+- name: Create auto_configure1 file
+  file: path=/opt/cdh/auto_configure1 state=touch
+
+
+- name: Setting parcel repo
+  uri: 
+    url: "{{BASE_URL}}/cm/config"  
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name" : "REMOTE_PARCEL_REPO_URLS",
+                    "value": "{{CDH_PARCELS_REPO}}"   }]}
+    body_format: json
+
+ 
+- name: Pause of 5 seconds
+  pause: seconds=5
+ 
+
+- name: Getting CDH Parcel name
+  shell: curl -sS -X GET -u "admin:admin" -i "{{BASE_URL}}/clusters/{{CLUSTER}}/parcels" | grep '"version" :' | cut -d'"' -f 4 | grep cdh
+  register: CDH_name
+
+
+- name: CDH_parcel_name
+  debug: var=CDH_name.stdout
+
+
+
+
+- name: Download CDH parcel
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/parcels/products/CDH/versions/{{CDH_name.stdout}}/commands/startDownload"
+    method: POST
+    user: admin
+    password: admin
+    creates: /opt/cdh/download_cdh_parcel
+
+   
+- name: Get file_exists into register
+  stat: path=/opt/cdh/download_cdh_parcel
+  register: file_exists
+
+
+- name: Downloading CDH parcel
+  command: curl -sS -X GET -u "admin:admin" -i "{{BASE_URL}}/clusters/{{CLUSTER}}/parcels/products/CDH/versions/{{CDH_name.stdout}}"
+  register: parcel_msg
+  until: parcel_msg.stdout.find("DOWNLOADED") != -1
+  retries: 30
+  delay: 10
+  ignore_errors: yes
+  when: not file_exists.stat.exists 
+
+- name: Create download_cdh_parcel file
+  file: path=/opt/cdh/download_cdh_parcel state=touch
+ 
+
+
+- name: Distribute CDH parcel
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/parcels/products/CDH/versions/{{CDH_name.stdout}}/commands/startDistribution"
+    method: POST
+    user: admin
+    password: admin
+    creates: /opt/cdh/distribute_cdh_parcel
+
+
+- name: Get file_exists into register
+  stat: path=/opt/cdh/distribute_cdh_parcel
+  register: file_exists
+
+
+- name: Distributing CDH parcel
+  command: curl -sS -X GET -u "admin:admin" -i "{{BASE_URL}}/clusters/{{CLUSTER}}/parcels/products/CDH/versions/{{CDH_name.stdout}}"
+  register: parcel_msg
+  until: parcel_msg.stdout.find("DISTRIBUTED") != -1
+  retries: 30
+  delay: 10
+  ignore_errors: yes
+  when: not file_exists.stat.exists 
+
+
+- name: Create distribute_cdh_parcel file
+  file: path=/opt/cdh/distribute_cdh_parcel state=touch
+
+
+
+
+- name: Activate CDH parcel
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/parcels/products/CDH/versions/{{CDH_name.stdout}}/commands/activate"
+    method: POST
+    user: admin
+    password: admin
+    creates: /opt/cdh/activate_cdh_parcel
+
+
+- name: Get file_exists into register
+  stat: path=/opt/cdh/activate_cdh_parcel
+  register: file_exists
+
+
+- name: Activating CDH parcel
+  command: curl -sS -X GET -u "admin:admin" -i "{{BASE_URL}}/clusters/{{CLUSTER}}/parcels/products/CDH/versions/{{CDH_name.stdout}}"
+  register: parcel_msg
+  until: parcel_msg.stdout.find("ACTIVATED") != -1
+  retries: 30
+  delay: 10
+  ignore_errors: yes
+  when: not file_exists.stat.exists
+
+
+- name: Create activate_cdh_parcel file
+  file: path=/opt/cdh/activate_cdh_parcel state=touch
+
+
+- name: Restart the Cloudera management services
+  uri:
+    url: "{{BASE_URL}}/cm/service/commands/restart"
+    method: POST
+    user: admin
+    password: admin
+
+- name: First run
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/commands/firstRun"  
+    method: POST
+    user: admin
+    password: admin
+    creates: /opt/cdh/first_run
+
+
+- name: Create first_run file
+  file: path=/opt/cdh/first_run state=touch
+
+
+
+- name: Cloudera installation in progress 
+  debug: msg="Watch Cloudera installation progress at '{{groups['cloudera_master'][0]}}:7180'. Login with Username - admin and Password - admin"
+

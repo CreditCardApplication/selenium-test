@@ -1,0 +1,28 @@
+---
+####################################################################
+# List of variables which needs to be changed according to flavour # 
+####################################################################
+
+### Common variables ###
+ANSIBLE_USER: ansibledev # User who has a sudo access on all hosts
+DOMAIN: local # Acceptable values: local, internet
+CLUSTER: Cluster1 # Name of Hadoop cluster
+FLAVOUR: cdh # Acceptable values: cdh, hdp, bi
+HA_NAMENODE: false
+HA_RESOURCE_MANAGER: false
+NAMESERVICE: nameservice1
+
+
+### Variables need to be changed, if domain is local (intranet) ###
+#NTP_SERVER: 10.0.0.4 # Internal time server IP for time sync
+#OS_REPO: http://mirror.centos.org/centos/7/CentOS-Base.repo #URL of OS repo
+
+
+### Variables for Cloudera ###
+CDH_VER: 5.14.4 # Cloudera version which you want to install 
+CM_BASE_URL: http://archive.cloudera.com/cm5/redhat/7/x86_64/cm/5.14.4/ # Base URL of CM repo 
+CDH_PARCELS_REPO: http://archive.cloudera.com/cdh5/parcels/5.14.4/
+
+
+
+

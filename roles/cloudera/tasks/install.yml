@@ -1,0 +1,36 @@
+---
+################################################################################
+# This will install and start the cloudera server on the cloudera_master host  #
+################################################################################
+
+#- name: Install Cloudera packages
+#  package:
+#    name: "{{item}}"
+#    state: present
+#  with_items:
+#    - cloudera-manager-daemons 
+#    - cloudera-manager-server 
+#    - cloudera-manager-server-db-2 
+
+
+- name: download cloudera rpm
+  get_url:
+    url: "{{ item }}"
+    dest: /tmp/
+  with_items:
+    - "https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/5.14.4/RPMS/x86_64/cloudera-manager-daemons-5.14.4-1.cm5144.p0.3.el7.x86_64.rpm"
+    - "https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/5.14.4/RPMS/x86_64/cloudera-manager-server-5.14.4-1.cm5144.p0.3.el7.x86_64.rpm"
+
+- name: install cloudera manager
+  yum:
+    name: "{{ item }}"
+  with_items:
+    - /tmp/cloudera-manager-daemons-5.14.4-1.cm5144.p0.3.el7.x86_64.rpm
+    - /tmp/cloudera-manager-server-5.14.4-1.cm5144.p0.3.el7.x86_64.rpm
+
+- name: start cloudera-scm-server
+  service:
+    name: cloudera-scm-server
+    state: restarted
+
+

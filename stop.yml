@@ -1,0 +1,65 @@
+---
+- hosts: hadoop_hosts
+  become: true
+  tasks:
+  - name: stop cloudera daemon
+    service:
+      name: cloudera-scm-agent
+      state: stopped
+
+  - name: delete cloudera rpms
+    yum:
+      name: cloudera-manager-agent
+      state: absent
+
+  - name: delete cloudera daemons rpm
+    yum:
+      name: cloudera-manager-daemons
+      state: absent
+ 
+  - name: delete cloudera agent dirs.
+    file:
+      path: /etc/cloudera-scm-agent
+      state: absent
+
+  - name: delete created files by automation
+    file:
+      path: /opt/cdh/
+      state: absent
+
+  - name: Remove cm_guid file
+    file:
+      path: /var/lib/cloudera-scm-agent/cm_guid
+      state: absent
+
+  - name: remove all hadoop dir
+    shell: rm -rf "{{ item }}"
+    with_items:
+      - /var/lib/cloudera*
+      - /var/lib/hadoop*
+      - /var/log/cloudera*
+      - /var/run/cloudera*
+
+  - name: stop all process
+    shell:  "ps -elf | grep [c]loudera | awk '{print $4}' | xargs kill -9"
+    ignore_errors: true
+
+  - name: delete dir
+    file:
+      path: "{{ item }}"
+      state: absent
+    with_items:
+      - /usr/share/cmf
+      - /var/lib/cloudera*
+      - /var/cache/yum/cloudera*
+      - /var/log/cloudera*
+      - /var/run/cloudera*
+      - /tmp/.scm_prepare_node.lock
+      - /mnt/dfs/nn/
+      - /mnt/dfs/dn
+
+  - name: delete created files by automation
+    file:
+      path: /opt/cdh/
+      state: directory
+

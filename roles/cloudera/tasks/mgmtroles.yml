@@ -1,0 +1,31 @@
+- name: Configure activity monitor
+  uri:
+    url: "{{BASE_URL}}/cm/service/roleConfigGroups/mgmt-ACTIVITYMONITOR-BASE/config"
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items":[{"name": "firehose_database_host", "value": "{{hostvars[groups['mysql'][0]].ansible_fqdn}}:3306"}, {"name": "firehose_database_name", "value": "amon"}, {"name": "firehose_database_password", "value": "{{amon_pass}}"}, {"name": "firehose_database_user", "value": "amon"},{"name": "firehose_database_type", "value": "mysql"}]}
+    body_format: json
+    status_code: 200,204
+    creates: /opt/cdh/amon_manager
+
+- name: Create remote_manager file
+  file: path=/opt/cdh/amon_manager state=touch
+  
+
+- name: Configure mysql db for oozie
+  uri:
+    url: "{{BASE_URL}}/clusters/Cluster1/services/oozie/roleConfigGroups/oozie-OOZIE_SERVER-BASE/config"
+    method: PUT
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name": "oozie_database_host", "value": "{{hostvars[groups['mysql'][0]].ansible_fqdn}}:3306"}, {"name": "oozie_database_name", "value": "oozie"}, {"name": "oozie_database_password", "value": "{{oozie_pass}}"}, {"name": "oozie_database_user", "value": "oozie"},{"name": "oozie_database_type", "value": "mysql"}] }
+    body_format: json
+    creates: /opt/cdh/oozie_dbconfig 
+  when: "{{ groups['oozie'] | length}} != 0"  
+      
+- name: Create oozie_service file
+  file: path=/opt/cdh/oozie_dbconfig state=touch
+  when: "{{ groups['oozie'] | length}} != 0"

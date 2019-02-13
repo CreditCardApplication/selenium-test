@@ -1,0 +1,57 @@
+---
+- name: stop oozie service 
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/oozie/commands/stop"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name":"serviceName", "type":"oozie"}, {"name":"clusterName", "type":"{{CLUSTER}}"} ]}
+    body_format: json
+  with_items: "{{groups['oozie']}}"
+
+
+- name: pause till service becomes down
+  pause:
+    minutes: 1
+        
+- name: create oozie db tables
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/oozie/commands/createOozieDb"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name":"serviceName", "type":"oozie"}, {"name":"clusterName", "type":"{{CLUSTER}}"} ]}
+    body_format: json
+  with_items: "{{groups['oozie']}}"
+  args:
+    creates: /opt/cdh/oozie_dbtables
+        
+- name: start oozie service 
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/oozie/commands/start"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name":"serviceName", "type":"oozie"}, {"name":"clusterName", "type":"{{CLUSTER}}"} ]}
+    body_format: json
+  with_items: "{{groups['oozie']}}"
+
+- name: pause till service becomes down
+  pause:
+    minutes: 1
+        
+- name: install oozie share lib
+  uri:
+    url: "{{BASE_URL}}/clusters/{{CLUSTER}}/services/oozie/commands/installOozieShareLib"
+    method: POST
+    user: admin
+    password: admin
+    HEADER_Content-Type: "application/json"
+    body: { "items": [ {"name":"serviceName", "type":"oozie"}, {"name":"clusterName", "type":"{{CLUSTER}}"} ]}
+    body_format: json
+  with_items: "{{groups['oozie']}}"
+  args:
+    creates: /opt/cdh/oozie_sharelib

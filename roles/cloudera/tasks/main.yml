@@ -15,3 +15,4 @@
 - include: install.yml
 - include: configscmdb.yml
 - include: configure.yml
+- include: oozie.yml
